@@ -79,7 +79,7 @@ Raw Data (from MetaPhlan4) → Decontam Analysis → Contextual Filtering (PubMe
 │   └── ...
 
 ```
-
+Those scripts are jsut snipnets of the scripts created during this project. Don't hesitate to contact me if you want to learn more. 
 
 ## 🔬 Clinical Implications
 
