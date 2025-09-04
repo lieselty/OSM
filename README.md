@@ -35,8 +35,7 @@ This study investigates how contact lens wear and pollen allergies impact the oc
 ## 🧬 Key Results
 
 ### Contact Lenses
-
-<embed src="[document.pdf](https://github.com/lieselty/OSM/blob/main/results/composition_plot.pdf)" type="application/pdf" width="600" height="400" />
+![Composition Plot](results/composition.png)
 
 - No significant overall differences in OSM composition or diversity
 - Sex-stratified analysis revealed marginal differences in male participants
