@@ -1,0 +1,32 @@
+library(rentrez)
+library(pbapply)
+library(httr)
+
+# Pubmed search
+search_species_with_keywords <- function(species_name, keywords, threshold = 0, until_date = "2025/06/01") {
+  species_query <- gsub("_", " ", species_name)
+  keyword_query <- paste(keywords, collapse = " OR ")
+  full_query <- paste0("(", species_query, ") AND (", keyword_query, ")")
+  
+  # I added the date because new publications change the result, so here it's for when I did my thesis
+  # if someone use it in the future, you may want to update it to your current year, but if you want to reproduce my work,
+  # welcome in June 2025
+  date_filter <- paste0('"0001/01/01"[PDAT] : "', until_date, '"[PDAT]')
+  full_query <- paste(full_query, date_filter)
+  
+  result <- entrez_search(db = "pubmed", term = full_query, retmax = 5)
+  
+  if (result$count > threshold) {
+    # Fetch summaries
+    summaries_raw <- entrez_summary(db = "pubmed", id = result$ids)
+    # Handle single or multiple PMIDs
+    titles <- if (length(result$ids) == 1) {
+      summaries_raw$title
+    } else {
+      sapply(summaries_raw, function(x) x$title)
+    }
+    return(list(species = species_name, hits = result$count, titles = titles, pmids = result$ids))
+  } else {
+    return(list(species = species_name, hits = 0, titles = NA, pmids = NA))
+  }
+}
