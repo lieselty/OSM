@@ -71,15 +71,12 @@ Raw Data (from MetaPhlan4) → Decontam Analysis → Contextual Filtering (PubMe
 
 ```
 ├── scripts/
-│   ├── 
-│   ├── 
-│   ├── 
-│   ├── 
-│   ├── 
-│   └── 
+│   ├── 1_decontamination_functions.R
+│   ├── 2_analysis_functions.R
+│   ├── 3_DED_score_functions.R
+│   └── 4_protein_analysis.R
 ├── results/
-│   ├── figures/
-│   └──
+│   └── ...
 
 ```
 
@@ -108,7 +105,7 @@ Raw Data (from MetaPhlan4) → Decontam Analysis → Contextual Filtering (PubMe
 - Contact lens material and hygiene practice effects
 - Seasonal variation in pollen allergy microbiome
 
-## 📚 Publications
+## 📚 Publication
 
 *Publication currently under review*
 
