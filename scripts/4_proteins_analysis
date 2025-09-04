@@ -1,0 +1,88 @@
+# Load package
+library(readxl)
+library(dplyr)
+library(RColorBrewer)
+library(patchwork)
+library(vegan)
+library(ggplot2)
+library(ggrepel) 
+
+create_pca_plot <- function(data, method_name, title_suffix = "Proteomic Data") {
+
+    method_data <- data %>% 
+    select(matches(paste0("^", method_name))) %>%
+    select(-matches(paste0(method_name, " Selected"))) %>% 
+    t() %>%               
+    as.data.frame()
+  
+  # metadata
+  sample_metadata <- data.frame(
+    sample = rownames(method_data),
+    group = ifelse(grepl("TPN", rownames(method_data)), "CN", "CL"),
+    row.names = rownames(method_data)
+  )
+  
+  # Impute and log
+  method_imputed <- method_data %>% 
+    mutate(across(everything(), ~ifelse(is.na(.), median(., na.rm = TRUE), .))) %>%
+    mutate(across(everything(), ~. + 0.001))
+  
+  method_log2 <- log2(method_imputed) 
+  
+  dist_matrix <- dist(scale(method_log2))  # Euclidean distance of scaled data
+  permanova_result <- adonis2(dist_matrix ~ group, data = sample_metadata, permutations = 999)
+  p_value <- permanova_result$`Pr(>F)`
+  print(p_value)
+  
+  # PCA
+  pca_result <- prcomp(method_log2, scale. = TRUE, center = TRUE)
+
+  pca_scores <- as.data.frame(pca_result$x)
+  variance_explained <- round(pca_result$sdev^2 / sum(pca_result$sdev^2) * 100, 1)
+  pca_data <- cbind(pca_scores, group = sample_metadata$group)
+  
+  # plot
+  ggplot(pca_data, aes(x = PC1, y = PC2, color = group)) +
+    geom_point(size = 3, alpha = 0.8) +
+    theme_minimal() +
+    stat_ellipse(level = 0.95, linewidth = 0.8) +
+    ggtitle("(B)") +
+    xlab(paste0("PC1 (", variance_explained[1], "% variance)")) +
+    ylab(paste0("PC2 (", variance_explained[2], "% variance)")) +
+    scale_color_brewer(palette = "Accent") +
+    theme(
+      plot.title = element_text(hjust = 0, face = "bold"),
+      legend.position = "right"
+    )
+}
+
+create_volcano <- function(data, method_name, x_limits = c(-2, 2), y_limits) {
+  res <- na.omit(data.frame(
+    protein_id = data$Gene, 
+    log2FC = data[[paste0(method_name, " log2FC TPKL - TPN")]],
+    adjPval = data[[paste0(method_name, " EB_adjpVal TPKL - TPN")]]
+  ))
+  
+  # Identify the protein with the lowest adjusted p-value
+  min_pval_idx <- which.min(res$adjPval)
+  min_pval_protein <- res[min_pval_idx, ]
+  
+  ggplot(res, aes(x = log2FC, y = -log10(adjPval))) +
+    geom_point(aes(color = ifelse(adjPval < 0.05 & abs(log2FC) > 1, "sig", "not_sig")), 
+               alpha = 0.6, size = 2) +
+    # Add the lowest adjPval protein in blue
+    geom_point(data = min_pval_protein, aes(x = log2FC, y = -log10(adjPval)), 
+               color = "gray30", size = 2) +
+    geom_text(data = min_pval_protein, aes(x = log2FC, y = -log10(adjPval), label = protein_id), 
+              vjust = -1, color = "gray30", size = 3.5) +
+    scale_color_manual(values = c("sig" = "red", "not_sig" = "gray")) +
+    geom_hline(yintercept = -log10(0.05), linetype = "dashed", color = "black") +
+    geom_vline(xintercept = c(-1, 1), linetype = "dashed", color = "black") +
+    theme_minimal() +
+    labs(x = "log2 Fold Change", y = "-log10(adjusted p value)",
+         title = "(A)",
+         color = "Significance") +
+    theme(legend.position = "bottom",
+          plot.title = element_text(hjust = 0, face = "bold")) + 
+    ylim(y_limits[1], y_limits[2])
+}
