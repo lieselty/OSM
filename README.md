@@ -67,6 +67,7 @@ This study investigates how contact lens wear and pollen allergies impact the oc
 ```
 Raw Data (from MetaPhlan4) → Decontam Analysis → Contextual Filtering (PubMed) → Clean Dataset
 ```
+This method work by taking the list of species flagged as potential contaminant by decontam (based on the prevalence method) and perform a litteratur search to remove species from the contaminant list if those species are cited in at least 5 papers talking about the ocular surface. 
 
 ### Key Software & Packages
 - **Sequencing**: UMI-tools, fastp, Bowtie2, SAMtools
