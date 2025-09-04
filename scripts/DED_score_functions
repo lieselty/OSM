@@ -1,0 +1,33 @@
+# For each parameter, 5 points, 5 meaning dry eye
+scoring_function <- function(var, upper_bound, direction) {
+  # Create breaks
+  if (min(var) == 0) {
+    # If min is 0, we need one fewer break point
+    range_val <- seq(0, max(var), length.out = 5)[-1]  # 5 points total, remove first 0
+    breaks <- c(0, range_val, upper_bound)  # Now we have 6 breaks (5 intervals)
+  } else {
+    range_val <- seq(min(var), max(var), length.out = 6)  # 6 points
+    breaks <- c(0, range_val, upper_bound)  # 8 breaks (7 intervals)
+  }
+  
+  # Create appropriate labels based on number of intervals
+  n_intervals <- length(breaks) - 1
+  
+  if (direction == "low") {
+    # lower values mean dryer eye 
+    if (n_intervals == 5) {
+      score_labels <- c(5, 4, 3, 2, 1)
+    } else {
+      score_labels <- c(5, 5, 4, 3, 2, 1, 1)
+    }
+  } else {
+    # higher values mean dryer eyes
+    if (n_intervals == 5) {
+      score_labels <- c(1, 2, 3, 4, 5)
+    } else {
+      score_labels <- c(1, 1, 2, 3, 4, 5, 5)
+    }
+  }
+  
+  return(as.numeric(as.character(cut(var, breaks, score_labels, right = FALSE))))
+}
