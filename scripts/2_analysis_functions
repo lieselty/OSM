@@ -1,0 +1,314 @@
+# Load necessary libraries
+library(ggplot2)
+library(vegan)
+library(dplyr)
+library(tidyr)
+library(RColorBrewer)
+library(gridExtra)
+library(wesanderson)
+
+# Function to calculate basic statistics for each row
+calculate_row_stats <- function(data) {
+  row_means <- rowMeans(data, na.rm = TRUE)
+  row_sd <- apply(data, 1, sd, na.rm = T)
+  row_medians <- apply(data, 1, median, na.rm = TRUE)
+  presence_proportion <- apply(data, 1, function(row) sum(row != 0, na.rm = TRUE) / ncol(data))
+  sample_counts <- apply(data, 1, function(row) sum(row != 0, na.rm = TRUE))
+  
+  data_info <- data
+  data_info$means <- row_means
+  data_info$sd <- row_sd
+  data_info$medians <- row_medians
+  data_info$sample_counts <- sample_counts
+  data_info$presence_proportion <- presence_proportion
+  
+  return(data_info)
+}
+
+# Function to calculate prevalence at each threshold
+count_prevalence_steps <- function(column) {
+  thresholds <- seq(1, 0, by = -0.05)
+  counts <- sapply(thresholds, function(threshold) sum(column >= threshold))
+  names(counts) <- thresholds
+  return(counts)
+}
+
+# Function to plot prevalence counts
+plot_prevalence_counts <- function(prevalence_counts, color) {
+  plot(
+    x = names(prevalence_counts),
+    y = prevalence_counts,
+    type = "o",
+    xlab = "Prevalence Threshold",
+    ylab = "Counts",
+    main = "Number of species with a certain prevalence",
+    col = color,
+    pch = 16
+  )
+  axis(1, at = seq_along(names(prevalence_counts)), labels = names(prevalence_counts), las = 2, cex.axis = 0.8)
+  grid()
+}
+
+# Function to prepare data for composition plot
+prepare_composition_data <- function(data, group_patterns) {
+  data_compo <- data
+  for (group in names(group_patterns)) {
+    data_compo[[paste0("Mean_", group)]] <- rowMeans(data_compo[, grep(group_patterns[[group]], colnames(data_compo))], na.rm = TRUE)
+  }
+  data_compo$clade_name <- rownames(data_compo)
+  
+  # Reshape to long format
+  df_long <- data_compo %>%
+    pivot_longer(cols = -clade_name, names_to = "Sample", values_to = "Abundance") %>%
+    mutate(Sample_Group = case_when(
+      grepl(group_patterns[["CN"]], Sample) & !grepl("Mean", Sample) ~ "CN",
+      grepl(group_patterns[["CL"]], Sample) & !grepl("Mean", Sample) ~ "CL",
+      Sample %in% paste0("Mean_", names(group_patterns)) ~ "Mean CL               Mean CN",
+      TRUE ~ "Other"
+    ))
+  
+  top_clade <- df_long %>%
+    group_by(clade_name) %>%
+    summarise(total = sum(Abundance, na.rm = TRUE)) %>%
+    arrange(desc(total)) %>%
+    slice(1) %>%
+    pull(clade_name)
+  
+  top_clade_abundance <- df_long %>%
+    filter(clade_name == top_clade) %>%
+    select(Sample, top_clade_abundance = Abundance)
+  
+  mean_cl <- "Mean_CL"
+  mean_cn <- "Mean_CN"
+  
+  df_non_mean <- df_long %>%
+    filter(!(Sample %in% c(mean_cl, mean_cn)))
+  
+  df_mean <- df_long %>%
+    filter(Sample %in% c(mean_cl, mean_cn))
+  
+  top_clade <- df_long %>%
+    group_by(clade_name) %>%
+    summarise(total = sum(Abundance, na.rm = TRUE)) %>%
+    arrange(desc(total)) %>%
+    slice(1) %>%
+    pull(clade_name)
+  
+  non_mean_order <- df_non_mean %>%
+    filter(clade_name == top_clade) %>%
+    group_by(Sample) %>%
+    summarise(abundance = mean(Abundance, na.rm = TRUE)) %>%
+    left_join(df_non_mean %>% select(Sample, Sample_Group) %>% distinct(), by = "Sample") %>%
+    arrange(factor(Sample_Group, levels = c("CL", "CN")), desc(abundance)) %>%
+    pull(Sample)
+  
+  sample_order <- c(non_mean_order, mean_cl, mean_cn)
+  
+  df_long <- df_long %>%
+    mutate(Sample = factor(Sample, levels = unique(sample_order))) %>%
+    group_by(clade_name) %>%
+    mutate(total_abundance = sum(Abundance)) %>%
+    ungroup() %>%
+    arrange(desc(total_abundance)) %>%
+    mutate(clade_name = factor(clade_name, levels = unique(clade_name)))
+  
+  return(df_long)
+}
+
+
+# Function to plot composition
+plot_composition <- function(df_long, combined_palette) {
+  ggplot(df_long, aes(x = Sample, y = Abundance, fill = clade_name)) +
+    geom_bar(stat = "identity", position = "stack", width = ifelse(df_long$Sample_Group == "Mean CL / Mean CN", 0.5, 0.9)) +
+    labs(x = NULL, y = "Relative Abundance (%)", fill = "Clade Name") +
+    theme_minimal() +
+    scale_fill_manual(values = combined_palette) +
+    theme(
+      strip.text = element_text(size = 14, face = "bold"),
+      legend.text = element_text(size = 13, face = "italic"),
+      axis.text.x = element_blank(),
+    ) +
+    facet_wrap(~ Sample_Group, scales = "free_x")
+}
+
+# Function to calculate diversity indices
+calculate_diversity <- function(data, index, group_pattern) {
+  index_values <- diversity(data, index = index, MARGIN = 2)
+  unlist(index_values[grep(group_pattern, names(index_values))])
+}
+
+# Function to create a diversity data frame
+create_diversity_df <- function(values_CKL, values_CN, group_names) {
+  data.frame(
+    Group = rep(group_names, times = c(length(values_CKL), length(values_CN))),
+    Value = c(values_CKL, values_CN)
+  )
+}
+
+# Function to plot alpha diversity with p-values
+plot_alpha_diversity <- function(diversity_df, index_name, group_colors, p_value) {
+  diversity_df$Group <- as.factor(diversity_df$Group)
+  
+  plot_data <- diversity_df %>%
+    group_by(Group) %>%
+    summarise(mean = mean(Value), sd = sd(Value))
+  
+  m <- plot_data$mean
+  s <- plot_data$sd
+  
+  plot(plot_data$Group, plot_data$mean, ylim = range(diversity_df$Value),
+       border = "white", xlab = NULL, ylab = paste(index_name, "Index"))
+  title(main = "(A)", adj = 0)
+  
+  segments(x0 = 1:2, x1 = 1:2, y0 = m - s, y1 = m + s, lwd = 2, col = "grey45")
+  segments(x0 = 1:2 - 0.2, x1 = 1:2 + 0.2, y0 = m, y1 = m, lwd = 2, col = "grey45")
+  segments(x0 = 1:2 - 0.1, x1 = 1:2 + 0.1, y0 = m + s, y1 = m + s, lwd = 2, col = "grey45")
+  segments(x0 = 1:2 - 0.1, x1 = 1:2 + 0.1, y0 = m - s, y1 = m - s, lwd = 2, col = "grey45")
+  points(jitter(as.numeric(diversity_df$Group)), diversity_df$Value,
+         col = group_colors[as.integer(diversity_df$Group)], pch = 19)
+}
+
+plot_alpha_diversity_ggplot <- function(diversity_df, index_name, group_colors, p_value) {
+  diversity_df$Group <- as.factor(diversity_df$Group)
+  
+  plot_data <- diversity_df %>%
+    group_by(Group) %>%
+    summarise(mean = mean(Value), sd = sd(Value), .groups = 'drop')
+  
+  ggplot(diversity_df, aes(x = Group, y = Value)) +
+    geom_jitter(aes(color = Group), width = 0.2, size = 3, alpha = 0.7) +
+    geom_errorbar(data = plot_data, aes(x = Group, y = mean, ymin = mean - sd, ymax = mean + sd),
+                  width = 0.2, color = "grey45", size = 1) +
+    geom_point(data = plot_data, aes(x = Group, y = mean), 
+               color = "grey45", size = 2) +
+    scale_color_manual(values = group_colors) +
+    labs(title = "(A)", x = NULL, y = paste(index_name, "Index")) +
+    theme_classic() +
+    theme(
+      panel.border = element_rect(color = "black", fill = NA, size = 1),
+      legend.position = "none",
+      plot.title = element_text(hjust = 0, face = "bold"),
+      aspect.ratio = 1  # Same as coord_fixed()
+    )
+}
+
+
+
+# For analysis ------------------------------------------------------------
+
+library(Maaslin2)
+
+### Hierarchical Clustering ###
+plot_hclust <- function(data_transposed) {
+  dist_matrix <- dist(data_transposed)
+  hc <- hclust(dist_matrix)
+  plot(hc, main = "Dendrogram of Hierarchical Clustering", xlab = "", sub = "", cex = 0.8)
+}
+
+### PCA ###
+plot_pca <- function(data_transposed, metadata, color_by, title) {
+  pca_result <- prcomp(data_transposed)
+  pca_scores <- as.data.frame(pca_result$x)
+  
+  variance_explained <- pca_result$sdev^2 / sum(pca_result$sdev^2) * 100
+  
+  pca_data <- pca_scores
+  pca_data[[color_by]] <- metadata[[color_by]]
+  
+  ggplot(pca_data, aes(x = PC1, y = PC2, color = .data[[color_by]])) +
+    geom_point(size = 3) +
+    theme_gray() +
+    stat_ellipse(level = 0.95) +
+    ggtitle(title) +
+    xlab(paste0("Principal Component 1 [", round(variance_explained[1], 1), "%]")) +
+    ylab(paste0("Principal Component 2 [", round(variance_explained[2], 1), "%]")) +
+    scale_color_brewer(palette = "Accent")
+}
+
+### PCoA ###
+plot_pcoa <- function(data_transposed, metadata, color_by, title) {
+  distance_matrix <- vegdist(data_transposed, method = "bray")
+  pcoa_result <- cmdscale(distance_matrix, k = 2, eig = TRUE)
+  
+  pcoa_df <- data.frame(
+    PCoA1 = pcoa_result$points[, 1],
+    PCoA2 = pcoa_result$points[, 2]
+  )
+  
+  pcoa_combined <- cbind(pcoa_df, metadata[[color_by]])
+  colnames(pcoa_combined)[3] <- "group"
+  
+  variance_explained <- pcoa_result$eig / sum(pcoa_result$eig) * 100
+  x_label <- paste0("PCoA 1 (", round(variance_explained[1], 2), "%)")
+  y_label <- paste0("PCoA 2 (", round(variance_explained[2], 2), "%)")
+  
+  ggplot(pcoa_combined, aes(x = PCoA1, y = PCoA2, color = group)) +
+    geom_point(size = 3) +
+    stat_ellipse(level = 0.95) +
+    labs(title = title, x = x_label, y = y_label) +
+    theme_minimal() +
+    theme(legend.title = element_text(size = 10), legend.text = element_text(size = 8)) +
+    scale_color_brewer(palette = "Accent")
+}
+
+### NMDS ###
+plot_nmds <- function(data_transposed, metadata, color_by, title, colors = NULL) {
+  distance_matrix <- vegdist(data_transposed, method = "bray")
+  nmds_result <- metaMDS(distance_matrix, k = 2, trymax = 100)
+  nmds_df <- data.frame(
+    NMDS1 = nmds_result$points[, 1],
+    NMDS2 = nmds_result$points[, 2]
+  )
+  
+  nmds_combined <- cbind(nmds_df, metadata[[color_by]])
+  colnames(nmds_combined)[3] <- "group"
+  
+  ggplot(nmds_combined, aes(x = NMDS1, y = NMDS2, color = group)) +
+    geom_point(size = 3) +
+    stat_ellipse(level = 0.95) +
+    labs(title = "(B)", x = "NMDS 1", y = "NMDS 2", color = NULL) +
+    theme_classic() +
+    theme(
+      panel.border = element_rect(color = "black", fill = NA, size = 1),
+      legend.title = element_text(size = 10),
+      legend.text = element_text(size = 8),
+      plot.title = element_text(hjust = 0, face = "bold", margin = margin(b=20)),
+      plot.margin = margin(t = 25, r = 10, b = 30, l = 10) 
+    ) +
+    scale_color_manual(values = if (!is.null(colors)) colors else brewer.pal(n = 8, name = "Accent"))
+}
+
+### MaAsLin ###
+# I changed it so it not saved on the computer anymore!!!
+run_maaslin <- function(data, metadata, fixed_effects, random_effects = c(),analysis_method = "LM", output_name = tempdir(), normalization = "NONE", transform = "NONE") {
+  Maaslin2(
+    input_data = data,
+    input_metadata = metadata,
+    output = output_name,
+    min_abundance = 0.0,
+    min_prevalence = 0.0,
+    normalization = normalization,
+    transform = transform,
+    analysis_method = analysis_method,
+    max_significance = 0.25,
+    fixed_effects = fixed_effects,
+    random_effects = random_effects,
+    correction = "BH",
+    standardize = FALSE,
+    cores = 1
+  )
+}
+
+# To filter maaslin rexutls
+filter_maaslin_results <- function(maaslin_data) {
+  
+  # Filter rows where q-value < 0.25 and N.not.0 >= N / 2 
+  filtered_data <- maaslin_data[
+    maaslin_data$qval <= 0.25 & maaslin_data$N.not.zero >= (maaslin_data$N / 2), 
+  ]
+  
+  return(filtered_data)
+}
+
+
+
