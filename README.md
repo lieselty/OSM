@@ -35,7 +35,7 @@ This study investigates how contact lens wear and pollen allergies impact the oc
 ## 🧬 Key Results
 
 ### Contact Lenses
-![Composition Plot](results/composition.png)
+![Composition Plot](results/composition_CL.png)
 
 - No significant overall differences in OSM composition or diversity
 - Sex-stratified analysis revealed marginal differences in male participants
@@ -43,6 +43,9 @@ This study investigates how contact lens wear and pollen allergies impact the oc
 - Increased subjective dry eye symptoms (OSDI©) in female contact lens wearers
 
 ### Pollen Allergies
+![Composition Plot](results/composition_pollen.png)
+
+
 - Significant differences in OSM beta diversity (p = 0.007)
 - ***Moraxella osloensis* significantly more abundant** in pollen allergy sufferers (q = 0.025)
 - No differences in tear proteome composition
